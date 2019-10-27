@@ -29,6 +29,9 @@
 if (!defined('_PS_VERSION_')) {
     exit;
 }
+
+use PrestaShopBundle\Controller\Admin\Configure\AdvancedParameters\BackupController;
+
 class Rj_Backup extends Module
 {
     protected $_html = '';
@@ -86,15 +89,17 @@ class Rj_Backup extends Module
         // $this->_html .= $this->displayWarning('mensaje de displayWarning');
         // $this->_html .= $this->displayConfirmation('mensaje de displayConfirmation');
         // $this->_html .= $this->displayInformation('mensaje de displayInformation');
-        if (Tools::isSubmit('submitConfiBackup') || Tools::isSubmit('submitConfigFtp')){
+        if (Tools::isSubmit('submitConfiBackup') || Tools::isSubmit('submitConfigFtp') || Tools::isSubmit('submitBackupAll')){
             if ($this->_postValidation()) {
                 $this->_postProcess();
                 $this->_html .= $this->renderFormHost();
                 $this->_html .= $this->renderFormFtp();
+                $this->_html .= $this->renderFormBackupAll();
             }
         } else {
             $this->_html .= $this->renderFormHost();
             $this->_html .= $this->renderFormFtp();
+            $this->_html .= $this->renderFormBackupAll();
         }
         
         return $this->_html;
@@ -105,6 +110,12 @@ class Rj_Backup extends Module
     }
     
     protected function _postProcess() {
+
+        $backupController = new BackupController();
+        $backupController->createAction();
+        // var_dump();
+        // die();
+
         if (Tools::isSubmit('submitConfiBackup')){
             $shop_groups_list = array();
             $shops = Shop::getContextListShopID();
@@ -126,8 +137,9 @@ class Rj_Backup extends Module
                 $this->dataBaseBackup();
                 Tools::redirectAdmin($this->context->link->getAdminLink('AdminModules', true) . '&conf=6&configure=' . $this->name . '&tab_module=' . $this->tab . '&module_name=' . $this->name);
             }
+
+
         }
-        
         if (Tools::isSubmit('submitConfigFtp')){
             $shop_groups_list = array();
             $shops = Shop::getContextListShopID();
@@ -144,6 +156,22 @@ class Rj_Backup extends Module
             }
             if (!$res) {
                 $errors[] = $this->displayError($this->trans('The configuration FTP.', array(), 'Modules.Rjbackup.Admin'));
+            } else {
+                Tools::redirectAdmin($this->context->link->getAdminLink('AdminModules', true) . '&conf=6&configure=' . $this->name . '&tab_module=' . $this->tab . '&module_name=' . $this->name);
+            }
+        }
+        if (Tools::isSubmit('submitBackupAll')){
+            $shop_groups_list = array();
+            $shops = Shop::getContextListShopID();
+            foreach ($shops as $shop_id) {
+                $shop_group_id = (int)Shop::getGroupFromShop($shop_id, true);
+                if (!in_array($shop_group_id, $shop_groups_list)) {
+                    $shop_groups_list[] = $shop_group_id;
+                }
+                $res = Configuration::updateValue('rj_backup_backup_all', Tools::getValue('rj_backup_backup_all'), false, $shop_group_id, $shop_id);
+            }
+            if (!$res) {
+                $errors[] = $this->displayError($this->trans('The configuration Ignore statistics tables.', array(), 'Modules.Rjbackup.Admin'));
             } else {
                 Tools::redirectAdmin($this->context->link->getAdminLink('AdminModules', true) . '&conf=6&configure=' . $this->name . '&tab_module=' . $this->tab . '&module_name=' . $this->name);
             }
@@ -216,6 +244,11 @@ class Rj_Backup extends Module
         $helper->submit_action = 'submitConfiBackup';
         $helper->currentIndex = $this->context->link->getAdminLink('AdminModules', false).'&configure='.$this->name.'&tab_module='.$this->tab.'&module_name='.$this->name;
         $helper->token = Tools::getAdminTokenLite('AdminModules');
+        // if($this->getConfigFieldsValues()){
+        //     var_dump($this->getConfigFieldsValues());
+        // } else {
+        //     var_dump('no hay contenido');
+        // }
         $helper->tpl_vars = array(
             'fields_value' => $this->getConfigFieldsValues(),
             'languages' => $this->context->controller->getLanguages(),
@@ -260,6 +293,7 @@ class Rj_Backup extends Module
                 $this->database_backup_name = Tools::getValue('database_backup_name', Configuration::get('database_backup_name', null, $id_shop_group, $id_shop));
             }     
         }
+
         return array(
             'database_host' => $this->database_host,
     		'database_port' => $this->database_port,
@@ -350,11 +384,67 @@ class Rj_Backup extends Module
         );
         return $helper->generateForm(array($fields_form));
     }
+
+    public function renderFormBackupAll()
+    {
+        $fields_form = array(
+            'form' => array(
+                'legend' => array(
+                    'title' => $this->getTranslator()->trans('Settings', array(), 'Admin.Global'),
+                    'icon' => 'icon-cogs'
+                ),
+                'input' => array(                   
+                    array(
+                        'type' => 'switch',
+                        'label' => $this->getTranslator()->trans('Ignore statistics tables', array(), 'Modules.Rjbackup.Admin'),
+                        'name' => 'rj_backup_backup_all',
+                        'desc' => $this->getTranslator()->trans('connections, connections_page, connections_source, guest, statssearch.', array(), 'Modules.Rjbackup.Admin'),
+                        'values' => array(
+                            array(
+                                'id' => 'active_on',
+                                'value' => 1,
+                                'label' => $this->getTranslator()->trans('Enabled', array(), 'Admin.Global')
+                            ),
+                            array(
+                                'id' => 'active_off',
+                                'value' => 0,
+                                'label' => $this->getTranslator()->trans('Disabled', array(), 'Admin.Global')
+                            )
+                        ),
+                    ),
+                ),
+                'submit' => array(
+                    'title' => $this->getTranslator()->trans('Save', array(), 'Admin.Actions'),
+                )
+            ),
+        );
+
+        $helper = new HelperForm();
+        $helper->show_toolbar = false;
+        $helper->table = $this->table;
+        $lang = new Language((int)Configuration::get('PS_LANG_DEFAULT'));
+        $helper->default_form_language = $lang->id;
+        $helper->allow_employee_form_lang = Configuration::get('PS_BO_ALLOW_EMPLOYEE_FORM_LANG') ? Configuration::get('PS_BO_ALLOW_EMPLOYEE_FORM_LANG') : 0;
+        $this->fields_form = array();
+
+        $helper->identifier = $this->identifier;
+        $helper->submit_action = 'submitBackupAll';
+        $helper->currentIndex = $this->context->link->getAdminLink('AdminModules', false).'&configure='.$this->name.'&tab_module='.$this->tab.'&module_name='.$this->name;
+        $helper->token = Tools::getAdminTokenLite('AdminModules');
+        $helper->tpl_vars = array(
+            'fields_value' => $this->getConfigFieldsBackupAll(),
+            'languages' => $this->context->controller->getLanguages(),
+            'id_language' => $this->context->language->id
+        );
+
+        return $helper->generateForm(array($fields_form));
+    }
    
     public function getFtpConfigFieldsValues()
     {
         $id_shop_group = Shop::getContextShopGroupID();
         $id_shop = Shop::getContextShopID();
+
         return array(
             'protocolo_ftp' => Tools::getValue('protocolo_ftp', Configuration::get('protocolo_ftp', null, $id_shop_group, $id_shop)),
             'ftp_host' => Tools::getValue('ftp_host', Configuration::get('ftp_host', null, $id_shop_group, $id_shop)),
@@ -364,23 +454,35 @@ class Rj_Backup extends Module
         );
         
     }
+
+    public function getConfigFieldsBackupAll()
+    {
+        $id_shop_group = Shop::getContextShopGroupID();
+        $id_shop = Shop::getContextShopID();
+
+        return array(
+            'rj_backup_backup_all' => Tools::getValue('rj_backup_backup_all', Configuration::get('rj_backup_backup_all', null, $id_shop_group, $id_shop)),
+        );
+        
+    }
+
     private function dataBaseBackup() 
     {
-        $this->getConfigFieldsValues();
-      
-        $file =  $this->database_backup_name;
         
+        $this->getConfigFieldsValues();
+
+        $dir_backup = _PS_MODULE_DIR_ . 'rj_backup/db_backup/' . date("YmdHis").'_'.$this->database_backup_name;
         $command = 'mysqldump --host=' . $this->database_host .
             ' --user=' . $this->database_user .
             ' --password=' . $this->database_password . 
             ' ' . $this->database_name .
-            ' --result-file=' . $file . ' 2>&1';
+            ' --result-file=' . $dir_backup . ' 2>&1';
+
         exec($command,$output=array(),$worked);
-        $this->compressZip($file);
-        // var_dump($command);
-        // var_dump($worked);
-        // die();
+
         $this->displayConfirmation('mensaje de displayConfirmation ' . $worked);
+
+        
         // switch($worked){
         //     case 0:
         //         echo 'La base de datos <b>' .$database_name .'</b> se ha almacenado correctamente en la siguiente ruta '.getcwd().'/' .$database_backup_name .'</b>';
@@ -392,26 +494,5 @@ class Rj_Backup extends Module
         //         echo 'Se ha producido un error de exportación, compruebe la siguiente información: <br/><br/><table><tr><td>Nombre de la base de datos:</td><td><b>' .$database_name .'</b></td></tr><tr><td>Nombre de usuario MySQL:</td><td><b>' .$mysqlUserName .'</b></td></tr><tr><td>Contraseña MySQL:</td><td><b>NOTSHOWN</b></td></tr><tr><td>Nombre de host MySQL:</td><td><b>' .$mysqlHostName .'</b></td></tr></table>';
         //     break;
         // }
-    }
-    private function compressZip($file) {
-              
-        $gzfile = _PS_MODULE_DIR_ . 'rj_backup/db_backup/' . date("YmdHis") . '_' . $file .'.gz'; 
-        $fp = gzopen($gzfile, 'w9'); // w == write, 9 == highest compression
-        gzwrite($fp, file_get_contents($file));
-        gzclose($fp);
-        
-        
-        
-        /*$zip = new ZipArchive();        
-        
-        $salida_zip = _PS_MODULE_DIR_ . 'rj_backup/db_backup/' . date("YmdHis") . '_' . $file .'.zip';        
-        
-        if($zip->open($salida_zip,ZIPARCHIVE::CREATE)===true) {
-                $zip->addFile($file); 
-                $zip->close(); 
-                unlink($file);
-            } else {
-            echo 'Error'; //Enviamos el mensaje de error
-        }*/
     }
 }
