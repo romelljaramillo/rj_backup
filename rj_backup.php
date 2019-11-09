@@ -30,7 +30,6 @@ if (!defined('_PS_VERSION_')) {
     exit;
 }
 
-use PrestaShopBundle\Controller\Admin\Configure\AdvancedParameters\BackupController;
 use PrestaShop\PrestaShop\Adapter\Entity\PrestaShopBackup;
 
 class Rj_Backup extends Module
@@ -43,6 +42,7 @@ class Rj_Backup extends Module
     private $database_password = '';
     private $database_backup_name = 'db_backup.sql';
     private $config;
+    public $rjBackupAll = true;
     
     public function __construct()
     {
@@ -86,6 +86,10 @@ class Rj_Backup extends Module
     
     public function getContent()
     {
+
+        $legacyBackup = new PrestaShopBackup();
+        $this->_html .= $legacyBackup->psBackupAll;
+        $this->_html .= $legacyBackup->psBackupDropTable;
         // $this->_html .= $this->displayError('mensaje de displayError');
         // $this->_html .= $this->displayWarning('mensaje de displayWarning');
         // $this->_html .= $this->displayConfirmation('mensaje de displayConfirmation');
@@ -111,11 +115,6 @@ class Rj_Backup extends Module
     }
     
     protected function _postProcess() {
-
-        $backupController = new BackupController();
-        $backupController->createAction();
-        // var_dump();
-        // die();
 
         if (Tools::isSubmit('submitConfiBackup')){
             $shop_groups_list = array();
@@ -169,7 +168,8 @@ class Rj_Backup extends Module
                 if (!in_array($shop_group_id, $shop_groups_list)) {
                     $shop_groups_list[] = $shop_group_id;
                 }
-                $res = Configuration::updateValue('rj_backup_backup_all', Tools::getValue('rj_backup_backup_all'), false, $shop_group_id, $shop_id);
+                $res = Configuration::updateValue('PS_BACKUP_ALL', Tools::getValue('PS_BACKUP_ALL'), false, $shop_group_id, $shop_id);
+                $res = Configuration::updateValue('PS_BACKUP_DROP_TABLE', Tools::getValue('PS_BACKUP_DROP_TABLE'), false, $shop_group_id, $shop_id);
             }
             if (!$res) {
                 $errors[] = $this->displayError($this->trans('The configuration Ignore statistics tables.', array(), 'Modules.Rjbackup.Admin'));
@@ -398,8 +398,26 @@ class Rj_Backup extends Module
                     array(
                         'type' => 'switch',
                         'label' => $this->getTranslator()->trans('Ignore statistics tables', array(), 'Modules.Rjbackup.Admin'),
-                        'name' => 'rj_backup_backup_all',
+                        'name' => 'PS_BACKUP_ALL',
                         'desc' => $this->getTranslator()->trans('connections, connections_page, connections_source, guest, statssearch.', array(), 'Modules.Rjbackup.Admin'),
+                        'values' => array(
+                            array(
+                                'id' => 'active_on',
+                                'value' => 1,
+                                'label' => $this->getTranslator()->trans('Enabled', array(), 'Admin.Global')
+                            ),
+                            array(
+                                'id' => 'active_off',
+                                'value' => 0,
+                                'label' => $this->getTranslator()->trans('Disabled', array(), 'Admin.Global')
+                            )
+                        ),
+                    ),
+                    array(
+                        'type' => 'switch',
+                        'label' => $this->getTranslator()->trans('Drop existing tables during import', array(), 'Modules.Rjbackup.Admin'),
+                        'name' => 'PS_BACKUP_DROP_TABLE',
+                        'desc' => $this->getTranslator()->trans('If enabled, the backup script will drop your tables prior to restoring data.', array(), 'Modules.Rjbackup.Admin'),
                         'values' => array(
                             array(
                                 'id' => 'active_on',
@@ -462,7 +480,8 @@ class Rj_Backup extends Module
         $id_shop = Shop::getContextShopID();
 
         return array(
-            'rj_backup_backup_all' => Tools::getValue('rj_backup_backup_all', Configuration::get('rj_backup_backup_all', null, $id_shop_group, $id_shop)),
+            'PS_BACKUP_ALL' => Tools::getValue('PS_BACKUP_ALL', Configuration::get('PS_BACKUP_ALL', null, $id_shop_group, $id_shop)),
+            'PS_BACKUP_DROP_TABLE' => Tools::getValue('PS_BACKUP_DROP_TABLE', Configuration::get('PS_BACKUP_DROP_TABLE', null, $id_shop_group, $id_shop)),
         );
         
     }
@@ -496,6 +515,5 @@ class Rj_Backup extends Module
         //     break;
         // }
 
-        //prueba
     }
 }
