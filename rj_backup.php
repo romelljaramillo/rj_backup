@@ -134,7 +134,6 @@ class Rj_Backup extends Module
             if (!$res) {
                 $errors[] = $this->displayError($this->trans('The configuration could not be updated.', array(), 'Modules.Rjbackup.Admin'));
             } else {
-                $this->dataBaseBackup();
                 Tools::redirectAdmin($this->context->link->getAdminLink('AdminModules', true) . '&conf=6&configure=' . $this->name . '&tab_module=' . $this->tab . '&module_name=' . $this->name);
             }
 
@@ -484,36 +483,5 @@ class Rj_Backup extends Module
             'PS_BACKUP_DROP_TABLE' => Tools::getValue('PS_BACKUP_DROP_TABLE', Configuration::get('PS_BACKUP_DROP_TABLE', null, $id_shop_group, $id_shop)),
         );
         
-    }
-
-    private function dataBaseBackup() 
-    {
-        
-        $this->getConfigFieldsValues();
-
-        $dir_backup = _PS_MODULE_DIR_ . 'rj_backup/db_backup/' . date("YmdHis").'_'.$this->database_backup_name;
-        $command = 'mysqldump --host=' . $this->database_host .
-            ' --user=' . $this->database_user .
-            ' --password=' . $this->database_password . 
-            ' ' . $this->database_name .
-            ' --result-file=' . $dir_backup . ' 2>&1';
-
-        exec($command,$output=array(),$worked);
-
-        $this->displayConfirmation('mensaje de displayConfirmation ' . $worked);
-
-        
-        // switch($worked){
-        //     case 0:
-        //         echo 'La base de datos <b>' .$database_name .'</b> se ha almacenado correctamente en la siguiente ruta '.getcwd().'/' .$database_backup_name .'</b>';
-        //     break;
-        //     case 1:
-        //         echo 'Se ha producido un error al exportar <b>' .$database_name .'</b> a '.getcwd().'/' .$database_backup_name .'</b>';
-        //     break;
-        //     case 2:
-        //         echo 'Se ha producido un error de exportación, compruebe la siguiente información: <br/><br/><table><tr><td>Nombre de la base de datos:</td><td><b>' .$database_name .'</b></td></tr><tr><td>Nombre de usuario MySQL:</td><td><b>' .$mysqlUserName .'</b></td></tr><tr><td>Contraseña MySQL:</td><td><b>NOTSHOWN</b></td></tr><tr><td>Nombre de host MySQL:</td><td><b>' .$mysqlHostName .'</b></td></tr></table>';
-        //     break;
-        // }
-
     }
 }
