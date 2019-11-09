@@ -31,6 +31,7 @@ if (!defined('_PS_VERSION_')) {
 }
 
 use PrestaShopBundle\Controller\Admin\Configure\AdvancedParameters\BackupController;
+use PrestaShop\PrestaShop\Adapter\Entity\PrestaShopBackup;
 
 class Rj_Backup extends Module
 {
@@ -494,5 +495,7 @@ class Rj_Backup extends Module
         //         echo 'Se ha producido un error de exportación, compruebe la siguiente información: <br/><br/><table><tr><td>Nombre de la base de datos:</td><td><b>' .$database_name .'</b></td></tr><tr><td>Nombre de usuario MySQL:</td><td><b>' .$mysqlUserName .'</b></td></tr><tr><td>Contraseña MySQL:</td><td><b>NOTSHOWN</b></td></tr><tr><td>Nombre de host MySQL:</td><td><b>' .$mysqlHostName .'</b></td></tr></table>';
         //     break;
         // }
+
+        //prueba
     }
 }
