@@ -55,7 +55,9 @@ class Rj_Backup extends Module
         parent::__construct();
         $this->displayName = $this->trans('Roanja Backup', array(), 'Modules.Rjbackup.Admin');
 		$this->description = $this->trans('Backup you prestashop.', array(), 'Modules.Rjbackup.Admin');
-		$this->ps_versions_compliancy = array('min' => '1.7.1.0', 'max' => _PS_VERSION_);
+        $this->ps_versions_compliancy = array('min' => '1.7.1.0', 'max' => _PS_VERSION_);
+        $legacyBackup = new PrestaShopBackup();
+        $this->rjBackupAll = $legacyBackup->psBackupAll;
         
         // $this->templateFile = 'module:ps_imageslider/views/templates/hook/slider.tpl';
     }
@@ -86,35 +88,42 @@ class Rj_Backup extends Module
     
     public function getContent()
     {
-
-        $legacyBackup = new PrestaShopBackup();
-        $this->_html .= $legacyBackup->psBackupAll;
-        $this->_html .= $legacyBackup->psBackupDropTable;
+        
         // $this->_html .= $this->displayError('mensaje de displayError');
         // $this->_html .= $this->displayWarning('mensaje de displayWarning');
         // $this->_html .= $this->displayConfirmation('mensaje de displayConfirmation');
         // $this->_html .= $this->displayInformation('mensaje de displayInformation');
-        if (Tools::isSubmit('submitConfiBackup') || Tools::isSubmit('submitConfigFtp') || Tools::isSubmit('submitBackupAll')){
+        if (Tools::isSubmit('submitConfiBackup') ||
+            Tools::isSubmit('submitConfigFtp') ||
+            Tools::isSubmit('submitBackupAll') || 
+            Tools::isSubmit('create_Backup')){
             if ($this->_postValidation()) {
                 $this->_postProcess();
                 $this->_html .= $this->renderFormHost();
                 $this->_html .= $this->renderFormFtp();
                 $this->_html .= $this->renderFormBackupAll();
+                $this->_html .= $this->renderFormCreateBackup();
+                $this->_html .= $this->renderListBackup();
             }
         } else {
             $this->_html .= $this->renderFormHost();
             $this->_html .= $this->renderFormFtp();
             $this->_html .= $this->renderFormBackupAll();
+            $this->_html .= $this->renderFormCreateBackup();
+            $this->_html .= $this->renderListBackup();
         }
         
         return $this->_html;
     }
     
-    protected function _postValidation() {
+    protected function _postValidation() 
+    {
+        
         return true;
     }
     
-    protected function _postProcess() {
+    protected function _postProcess() 
+    {
 
         if (Tools::isSubmit('submitConfiBackup')){
             $shop_groups_list = array();
@@ -170,6 +179,15 @@ class Rj_Backup extends Module
                 $res = Configuration::updateValue('PS_BACKUP_ALL', Tools::getValue('PS_BACKUP_ALL'), false, $shop_group_id, $shop_id);
                 $res = Configuration::updateValue('PS_BACKUP_DROP_TABLE', Tools::getValue('PS_BACKUP_DROP_TABLE'), false, $shop_group_id, $shop_id);
             }
+            if (!$res) {
+                $errors[] = $this->displayError($this->trans('The configuration Ignore statistics tables.', array(), 'Modules.Rjbackup.Admin'));
+            } else {
+                Tools::redirectAdmin($this->context->link->getAdminLink('AdminModules', true) . '&conf=6&configure=' . $this->name . '&tab_module=' . $this->tab . '&module_name=' . $this->name);
+            }
+        }
+        if (Tools::isSubmit('create_Backup')){
+            $legacyBackup = new PrestaShopBackup();
+            $res = $legacyBackup->add();
             if (!$res) {
                 $errors[] = $this->displayError($this->trans('The configuration Ignore statistics tables.', array(), 'Modules.Rjbackup.Admin'));
             } else {
@@ -310,7 +328,7 @@ class Rj_Backup extends Module
         $fields_form = array(
             'form' => array(
                 'legend' => array(
-                    'title' => $this->trans('Settings ftp destination', array(), 'Modules..Rjbackup.Admin'),
+                    'title' => $this->trans('Settings ftp destination', array(), 'Modules.Rjbackup.Admin'),
                     'icon' => 'icon-cogs'
                 ),
                 'input' => array(
@@ -484,4 +502,29 @@ class Rj_Backup extends Module
         );
         
     }
+
+    public function renderFormCreateBackup()
+    {
+        $this->context->smarty->assign(
+            array(
+                'link' => $this->context->link
+            )
+        );
+        return $this->display(__FILE__, 'rj_backup_form.tpl');
+    }
+
+    public function renderListBackup()
+    {
+        return $this->display(__FILE__, 'list.tpl');
+    }
+
+    protected function updateUrl($link)
+    {
+        if (substr($link, 0, 7) !== "http://" && substr($link, 0, 8) !== "https://") {
+            $link = "http://" . $link;
+        }
+
+        return $link;
+    }
+
 }
