@@ -34,18 +34,15 @@
 	<div id="backupsContent">
 		<div id="backups">
 			{foreach from=$backups item=backup}
-				<div id="backups_{$backup.id_backup}" class="panel">
+				<div id="backups_{$backup.file}" class="panel">
 					<div class="row">
-						<div class="col-lg-1">
-							<span><i class="icon-arrows "></i></span>
-						</div>
 						<div class="col-md-3">
-							<img src="{$image_baseurl}{$backup.image}" alt="{$backup.title}" class="img-thumbnail" />
+							<a href="{$dir}{$backup.file}" alt="{$backup.file}" class="">{$backup.file}</a>
 						</div>
 						<div class="col-md-8">
 							<h4 class="pull-left">
-								#{$backup.id_backup} - {$backup.title}
-								{if $backup.is_shared}
+								#{$backup.size} - {$backup.date}
+								{if $backup.size}
 									<div>
 										<span class="label color_field pull-left" style="background-color:#108510;color:white;margin-top:5px;">
 											{l s='Shared backup' d='Modules.Imagebackupr.Admin'}
@@ -54,17 +51,20 @@
 								{/if}
 							</h4>
 							<div class="btn-group-action pull-right">
-								{$backup.status}
-
 								<a class="btn btn-default"
-									href="{$link->getAdminLink('AdminModules')}&configure=rj_backup&id_backup={$backup.id_backup}">
-									<i class="icon-edit"></i>
-									{l s='Edit' d='Admin.Actions'}
+									href="{$dir}{$backup.file}">
+									<i class="icon-download"></i>
+									{l s='Download' d='Admin.Actions'}
 								</a>
 								<a class="btn btn-default"
-									href="{$link->getAdminLink('AdminModules')}&configure=rj_backup&delete_id_backup={$backup.id_backup}">
+									href="{$link->getAdminLink('AdminModules')}&configure=rj_backup&delete_id_backup={$backup.file}">
 									<i class="icon-trash"></i>
 									{l s='Delete' d='Admin.Actions'}
+								</a>
+								<a class="btn btn-default"
+									href="{$link->getAdminLink('AdminModules')}&configure=rj_backup&send_ftp={$backup.file}">
+									<i class="icon-send"></i>
+									{l s='send' d='Admin.Actions'}
 								</a>
 							</div>
 						</div>

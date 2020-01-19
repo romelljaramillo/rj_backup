@@ -31,9 +31,11 @@ if (!defined('_PS_VERSION_')) {
 }
 
 use PrestaShop\PrestaShop\Adapter\Entity\PrestaShopBackup;
-
+require(dirname(__FILE__).'/ftp/FtpClass.php');
 class Rj_Backup extends Module
 {
+    /** @var int Object id */
+    public $id;
     protected $_html = '';
     private $database_host = '';
     private $database_port = '';
@@ -43,6 +45,7 @@ class Rj_Backup extends Module
     private $database_backup_name = 'db_backup.sql';
     private $config;
     public $rjBackupAll = true;
+    public $rjBackupDropTable = true;
     
     public function __construct()
     {
@@ -58,7 +61,12 @@ class Rj_Backup extends Module
         $this->ps_versions_compliancy = array('min' => '1.7.1.0', 'max' => _PS_VERSION_);
         $legacyBackup = new PrestaShopBackup();
         $this->rjBackupAll = $legacyBackup->psBackupAll;
-        
+
+        $psBackupAll = Configuration::get('PS_BACKUP_ALL');
+        $psBackupDropTable = Configuration::get('PS_BACKUP_DROP_TABLE');
+        $this->rjBackupAll = $psBackupAll !== false ? $psBackupAll : true;
+        $this->rjBackupDropTable = $psBackupDropTable !== false ? $psBackupDropTable : true;
+
         // $this->templateFile = 'module:ps_imageslider/views/templates/hook/slider.tpl';
     }
     
@@ -96,7 +104,11 @@ class Rj_Backup extends Module
         if (Tools::isSubmit('submitConfiBackup') ||
             Tools::isSubmit('submitConfigFtp') ||
             Tools::isSubmit('submitBackupAll') || 
-            Tools::isSubmit('create_Backup')){
+            Tools::isSubmit('create_Backup') ||
+            Tools::isSubmit('delete_id_backup') ||
+            Tools::isSubmit('send_ftp'))
+
+        {
             if ($this->_postValidation()) {
                 $this->_postProcess();
                 $this->_html .= $this->renderFormHost();
@@ -161,6 +173,7 @@ class Rj_Backup extends Module
                 $res &= Configuration::updateValue('ftp_port', Tools::getValue('ftp_port'), false, $shop_group_id, $shop_id);
                 $res &= Configuration::updateValue('ftp_user', Tools::getValue('ftp_user'), false, $shop_group_id, $shop_id);
                 $res &= Configuration::updateValue('ftp_password', Tools::getValue('ftp_password'), false, $shop_group_id, $shop_id);
+                $res &= Configuration::updateValue('ftp_pasv', Tools::getValue('ftp_pasv'), false, $shop_group_id, $shop_id);
             }
             if (!$res) {
                 $errors[] = $this->displayError($this->trans('The configuration FTP.', array(), 'Modules.Rjbackup.Admin'));
@@ -169,8 +182,10 @@ class Rj_Backup extends Module
             }
         }
         if (Tools::isSubmit('submitBackupAll')){
+            
             $shop_groups_list = array();
             $shops = Shop::getContextListShopID();
+            
             foreach ($shops as $shop_id) {
                 $shop_group_id = (int)Shop::getGroupFromShop($shop_id, true);
                 if (!in_array($shop_group_id, $shop_groups_list)) {
@@ -186,10 +201,42 @@ class Rj_Backup extends Module
             }
         }
         if (Tools::isSubmit('create_Backup')){
-            $legacyBackup = new PrestaShopBackup();
-            $res = $legacyBackup->add();
+            $res = $this->addBackup();
+            
             if (!$res) {
                 $errors[] = $this->displayError($this->trans('The configuration Ignore statistics tables.', array(), 'Modules.Rjbackup.Admin'));
+            }
+
+            if(!$this->sendFtp($this->id)){
+                $errors[] = $this->displayError($this->trans('Error send FTP 3', array(), 'Modules.Rjbackup.Admin'));
+            } else {
+                Tools::redirectAdmin($this->context->link->getAdminLink('AdminModules', true) . '&conf=6&configure=' . $this->name . '&tab_module=' . $this->tab . '&module_name=' . $this->name);
+            }
+
+            // if (!$res) {
+            //     $errors[] = $this->displayError($this->trans('The configuration Ignore statistics tables.', array(), 'Modules.Rjbackup.Admin'));
+            // } else {
+            //     Tools::redirectAdmin($this->context->link->getAdminLink('AdminModules', true) . '&conf=6&configure=' . $this->name . '&tab_module=' . $this->tab . '&module_name=' . $this->name);
+            // }
+        }
+        if (Tools::isSubmit('delete_id_backup')){
+            // var_dump(Tools::getValue('delete_id_backup'));
+            // die();
+            $dir = $this->getDirbackup();
+            $this->id = $dir . Tools::getValue('delete_id_backup');
+            $res = $this->delete();
+
+            if (!$res) {
+                $errors[] = $this->displayError('Could not delete.');
+            } else {
+                Tools::redirectAdmin($this->context->link->getAdminLink('AdminModules', true) . '&conf=1&configure=' . $this->name . '&tab_module=' . $this->tab . '&module_name=' . $this->name);
+            }
+        }
+        if (Tools::isSubmit('send_ftp')){
+            $this->id = null;
+            $res = $this->sendFtp(Tools::getValue('send_ftp'));
+            if (!$res) {
+                $errors[] = 'Error send FTP 2.';
             } else {
                 Tools::redirectAdmin($this->context->link->getAdminLink('AdminModules', true) . '&conf=6&configure=' . $this->name . '&tab_module=' . $this->tab . '&module_name=' . $this->name);
             }
@@ -197,6 +244,34 @@ class Rj_Backup extends Module
         if (count($errors)) {
             $this->_html .= $this->displayError(implode('<br />', $errors));
         } 
+    }
+    
+    public function sendFtp($file)
+    {
+        $dir = $this->getDirbackup();
+        
+        if($this->id){
+            $file = substr($file, strlen($dir)); 
+        }
+
+        $backupfile = $dir . $file;
+        
+        $this->id = realpath($backupfile);
+
+        $dataFTP = $this->getFtpConfigFieldsValues();
+
+        $ftp = new FtpClass($dataFTP['ftp_host'], $dataFTP['ftp_port'], $dataFTP['ftp_user'], $dataFTP['ftp_password'], $dataFTP['ftp_pasv']);
+
+        if($ftp->ConnectFTP()){
+            if(!$ftp->sendFile($this->id, $file)){
+                $this->_html .= $this->displayError($this->trans('Error send FTP.', array(), 'Modules.Rjbackup.Admin'));
+                return false;
+            }
+        } else {
+            $this->_html .= $this->displayError($this->trans('Error connect FTP.', array(), 'Modules.Rjbackup.Admin'));
+            return false;
+        }
+        return true;
     }
     
     public function renderFormHost()
@@ -241,9 +316,10 @@ class Rj_Backup extends Module
                     ),
                     array(
                         'type' => 'text',
-                        'label' => $this->trans('Name backup', array(), 'Modules.Rjbackup.Admin'),
+                        'label' => $this->trans('Name dir backup', array(), 'Modules.Rjbackup.Admin'),
                         'name' => 'database_backup_name',
-                        'class' => 'fixed-width-lg'
+                        'class' => 'fixed-width-lg',
+                        'desc' => $this->getDirbackup()
                     ),
                 ),
                 'submit' => array(
@@ -378,6 +454,26 @@ class Rj_Backup extends Module
                         'name' => 'ftp_password',
                         'class' => 'fixed-width-lg'
                     ),
+                    array(
+                        'type' => 'select',
+                        'label' => $this->trans('FTP passive mode', array(), 'Modules.Rjbackup.Admin'),
+                        'name' => 'ftp_pasv',
+                        'required' => true,
+                        'options' => array(
+                            'query' => $ftp_pasv = array(
+                                array(
+                                    'ftp_pasv' => 1,
+                                    'name' => $this->trans('YES', array(), 'Modules.Rjbackup.Admin')
+                                ),
+                                array(
+                                    'ftp_pasv' => 0,
+                                    'name' => $this->trans('NO', array(), 'Modules.Rjbackup.Admin')
+                                ),                                  
+                            ),
+                        'id' => 'ftp_pasv',
+                        'name' => 'name'
+                        )
+                    ),
                 ),
                 'submit' => array(
                     'title' => $this->trans('Save', array(), 'Admin.Actions'),
@@ -487,6 +583,7 @@ class Rj_Backup extends Module
             'ftp_port' => Tools::getValue('ftp_port', Configuration::get('ftp_port', null, $id_shop_group, $id_shop)),
             'ftp_user' => Tools::getValue('ftp_user', Configuration::get('ftp_user', null, $id_shop_group, $id_shop)),
             'ftp_password' => Tools::getValue('ftp_password', Configuration::get('ftp_password', null, $id_shop_group, $id_shop)),
+            'ftp_pasv' => Tools::getValue('ftp_pasv', Configuration::get('ftp_pasv', null, $id_shop_group, $id_shop)),
         );
         
     }
@@ -515,7 +612,81 @@ class Rj_Backup extends Module
 
     public function renderListBackup()
     {
+        $backups = array();
+
+        $dir = $this->getDirbackup();
+
+        if(is_dir($dir)){
+            $files = scandir($dir);
+            foreach($files as $file){
+                if(!is_dir($dir.$file)){
+                    $item = array(
+                        
+                        'file' =>  $file,
+                        'date' =>  date ("d-m-Y H:i:s.", filemtime($dir.$file)),
+                        'size' => $this->formatSizeUnits(filesize($dir.$file))
+                    );
+                    array_push($backups, $item);
+                }
+            }
+        }
+
+        $this->context->smarty->assign(
+            array(
+                'link' => $this->context->link,
+                'dir'  => $this->getDirbackup('R'),
+                'backups' => $backups
+            )
+        );
+         
         return $this->display(__FILE__, 'list.tpl');
+    }
+
+    function formatSizeUnits($bytes)
+    {
+        if ($bytes >= 1073741824)
+        {
+            $bytes = number_format($bytes / 1073741824, 2) . ' GB';
+        }
+        elseif ($bytes >= 1048576)
+        {
+            $bytes = number_format($bytes / 1048576, 2) . ' MB';
+        }
+        elseif ($bytes >= 1024)
+        {
+            $bytes = number_format($bytes / 1024, 2) . ' KB';
+        }
+        elseif ($bytes > 1)
+        {
+            $bytes = $bytes . ' bytes';
+        }
+        elseif ($bytes == 1)
+        {
+            $bytes = $bytes . ' byte';
+        }
+        else
+        {
+            $bytes = '0 bytes';
+        }
+
+        return $bytes;
+    }
+
+    protected function getDirbackup($tipe_route = '')
+    {
+        $id_shop_group = Shop::getContextShopGroupID();
+        $id_shop = Shop::getContextShopID();
+
+        if(Tools::getValue('database_backup_name', Configuration::get('database_backup_name', null, $id_shop_group, $id_shop))){
+            $this->database_backup_name = Tools::getValue('database_backup_name', Configuration::get('database_backup_name', null, $id_shop_group, $id_shop));
+        }    
+
+        if($tipe_route == 'R'){
+            $dir = _MODULE_DIR_. $this->name. DIRECTORY_SEPARATOR . $this->database_backup_name . DIRECTORY_SEPARATOR;
+        } else {
+            $dir = _PS_MODULE_DIR_. $this->name. DIRECTORY_SEPARATOR . $this->database_backup_name . DIRECTORY_SEPARATOR;
+        }
+        return $dir;
     }
 
     protected function updateUrl($link)
@@ -525,6 +696,158 @@ class Rj_Backup extends Module
         }
 
         return $link;
+    }
+
+    /**
+     * Delete the current backup file.
+     *
+     * @return bool Deletion result, true on success
+     */
+    public function delete()
+    {
+        if (!$this->id || !unlink($this->id)) {
+            $this->error = Context::getContext()->getTranslator()->trans('Error deleting', array(), 'Admin.Advparameters.Notification') . ' ' . ($this->id ? '"' . $this->id . '"' :
+                Context::getContext()->getTranslator()->trans('Invalid ID', array(), 'Admin.Advparameters.Notification'));
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Creates a new backup file.
+     *
+     * @return bool true on successful backup
+     */
+    public function addBackup()
+    {
+        $dir = $this->getDirbackup();
+
+        if (!$this->rjBackupAll) {
+            $ignoreInsertTable = array(_DB_PREFIX_ . 'connections', _DB_PREFIX_ . 'connections_page', _DB_PREFIX_
+                . 'connections_source', _DB_PREFIX_ . 'guest', _DB_PREFIX_ . 'statssearch',
+            );
+        } else {
+            $ignoreInsertTable = array();
+        }
+
+        // Generate some random number, to make it extra hard to guess backup file names
+        $rand = dechex(mt_rand(0, min(0xffffffff, mt_getrandmax())));
+        $date = time();
+        $backupfile = $dir . $date . '-' . $rand . '.sql';
+
+        // Figure out what compression is available and open the file
+        if (function_exists('bzopen')) {
+            $backupfile .= '.bz2';
+            $fp = @bzopen($backupfile, 'w');
+        } elseif (function_exists('gzopen')) {
+            $backupfile .= '.gz';
+            $fp = @gzopen($backupfile, 'w');
+        } else {
+            $fp = @fopen($backupfile, 'wb');
+        }
+
+        if ($fp === false) {
+            echo Context::getContext()->getTranslator()->trans('Unable to create backup file', array(), 'Admin.Advparameters.Notification') . ' "' . addslashes($backupfile) . '"';
+
+            return false;
+        }
+
+        $this->id = realpath($backupfile);
+
+        fwrite($fp, '/* Backup for ' . Tools::getHttpHost(false, false) . __PS_BASE_URI__ . "\n *  at " . date($date) . "\n */\n");
+        fwrite($fp, "\n" . 'SET NAMES \'utf8\';');
+        fwrite($fp, "\n" . 'SET FOREIGN_KEY_CHECKS = 0;');
+        fwrite($fp, "\n" . 'SET SESSION sql_mode = \'\';' . "\n\n");
+
+        // Find all tables
+        $tables = Db::getInstance()->executeS('SHOW TABLES');
+        $found = 0;
+        foreach ($tables as $table) {
+            $table = current($table);
+
+            // Skip tables which do not start with _DB_PREFIX_
+            if (strlen($table) < strlen(_DB_PREFIX_) || strncmp($table, _DB_PREFIX_, strlen(_DB_PREFIX_)) != 0) {
+                continue;
+            }
+
+            // Export the table schema
+            $schema = Db::getInstance()->executeS('SHOW CREATE TABLE `' . $table . '`');
+
+            if (count($schema) != 1 || !isset($schema[0]['Table']) || !isset($schema[0]['Create Table'])) {
+                fclose($fp);
+                $this->delete();
+                echo Context::getContext()->getTranslator()->trans('An error occurred while backing up. Unable to obtain the schema of %s', array($table), 'Admin.Advparameters.Notification');
+
+                return false;
+            }
+
+            fwrite($fp, '/* Scheme for table ' . $schema[0]['Table'] . " */\n");
+
+            if ($this->rjBackupDropTable) {
+                fwrite($fp, 'DROP TABLE IF EXISTS `' . $schema[0]['Table'] . '`;' . "\n");
+            }
+
+            fwrite($fp, $schema[0]['Create Table'] . ";\n\n");
+
+            if (!in_array($schema[0]['Table'], $ignoreInsertTable)) {
+                $data = Db::getInstance()->query('SELECT * FROM `' . $schema[0]['Table'] . '`', false);
+                $sizeof = Db::getInstance()->numRows();
+                $lines = explode("\n", $schema[0]['Create Table']);
+
+                if ($data && $sizeof > 0) {
+                    // Export the table data
+                    fwrite($fp, 'INSERT INTO `' . $schema[0]['Table'] . "` VALUES\n");
+                    $i = 1;
+                    while ($row = Db::getInstance()->nextRow($data)) {
+                        $s = '(';
+
+                        foreach ($row as $field => $value) {
+                            $tmp = "'" . pSQL($value, true) . "',";
+                            if ($tmp != "'',") {
+                                $s .= $tmp;
+                            } else {
+                                foreach ($lines as $line) {
+                                    if (strpos($line, '`' . $field . '`') !== false) {
+                                        if (preg_match('/(.*NOT NULL.*)/Ui', $line)) {
+                                            $s .= "'',";
+                                        } else {
+                                            $s .= 'NULL,';
+                                        }
+
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        $s = rtrim($s, ',');
+
+                        if ($i % 200 == 0 && $i < $sizeof) {
+                            $s .= ");\nINSERT INTO `" . $schema[0]['Table'] . "` VALUES\n";
+                        } elseif ($i < $sizeof) {
+                            $s .= "),\n";
+                        } else {
+                            $s .= ");\n";
+                        }
+
+                        fwrite($fp, $s);
+                        ++$i;
+                    }
+                }
+            }
+            ++$found;
+        }
+
+        fclose($fp);
+        if ($found == 0) {
+            $this->delete();
+            echo Context::getContext()->getTranslator()->trans('No valid tables were found to backup.', array(), 'Admin.Advparameters.Notification');
+
+            return false;
+        }
+
+        return true;
     }
 
 }
